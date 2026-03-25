@@ -148,3 +148,29 @@ There is no test framework (pytest/unittest). Tests run via `if __name__ == "__m
 - **Main branch**: `master` (remote tracks as `main`)
 - **Feature branches**: `claude/<description>` pattern
 - **Commit style**: Short descriptive messages (e.g., "Create icosahedral_lightbridge.py")
+
+
+repo structure add in:
+
+agent-protocol/
+├── core/           (4 files)
+│   ├── agent.py        # Base agent — opportunistic discovery
+│   ├── message.py      # 8 verbs, JSON wire format
+│   ├── state.py        # Agent state snapshot
+│   └── transport.py    # Abstract transport interface
+├── transports/     (6 files)
+│   ├── local.py        # In-process (testing)
+│   ├── tcp.py          # TCP sockets (LAN)
+│   ├── udp.py          # UDP broadcast (zero-config LAN)
+│   ├── file_queue.py   # Async file-based (cross-process)
+│   ├── lora.py         # LoRa serial + simulator
+│   ├── ham.py          # HAM AX.25/KISS + simulator
+│   └── cb.py           # CB radio + simulator
+├── examples/       (6 files)
+│   ├── two_agents_local.py
+│   ├── two_agents_tcp.py
+│   ├── mesh_discovery.py
+│   ├── async_file_queue.py
+│   ├── be2_agents.py
+│   └── corridor_relay.py
+└── README.md
