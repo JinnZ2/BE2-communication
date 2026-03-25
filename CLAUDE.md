@@ -5,8 +5,9 @@
 **BE2-communication** is an opportunistic agent communication framework with geometric computation pipelines. The repository contains three layers:
 
 1. **Agent Protocol** (core/ + transports/) — a transport-agnostic framework where agents discover each other opportunistically using message verbs (ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE).
-2. **Geometric Computation Pipelines** — icosahedral lattice-based signal processing with thermal gating, meta-awareness, and octahedral tensor mapping.
-3. **UDP Mesh Protocol** (spec + implementation) — byte-level LAN UDP mesh for agent-to-agent communication with CRC16 integrity.
+2. **Emergency Mesh Protocol** — phone-to-phone communication via BLE mesh and WiFi Direct when all infrastructure is down. Protocol spec with SOS beacons, location sharing, supply coordination, and TTL-based mesh relay.
+3. **Geometric Computation Pipelines** — icosahedral lattice-based signal processing with thermal gating, meta-awareness, and octahedral tensor mapping.
+4. **UDP Mesh Protocol** (spec + implementation) — byte-level LAN UDP mesh for agent-to-agent communication with CRC16 integrity.
 
 License: **CC0 — Public Domain**
 
@@ -25,7 +26,7 @@ BE2-communication/
 │   ├── state.py                       # AgentState snapshot (status, capacity, offers, needs)
 │   └── transport.py                   # Abstract Transport interface
 │
-├── transports/                        # Pluggable transport backends (7 transports)
+├── transports/                        # Pluggable transport backends (9 transports)
 │   ├── __init__.py                    # Package exports
 │   ├── local.py                       # LocalHub + LocalTransport (in-process)
 │   ├── tcp.py                         # TCPTransport (length-prefixed JSON)
@@ -33,28 +34,32 @@ BE2-communication/
 │   ├── file_queue.py                  # FileQueueTransport (file-based async)
 │   ├── lora.py                        # LoRaTransport (serial + simulator)
 │   ├── ham.py                         # HAMTransport (AX.25/KISS + simulator)
-│   └── cb.py                          # CBTransport (CB radio + simulator)
+│   ├── cb.py                          # CBTransport (CB radio + simulator)
+│   ├── ble.py                         # BLETransport (BLE mesh with relay + dedup)
+│   └── wifi_direct.py                 # WiFiDirectTransport (P2P WiFi, no router)
 │
-├── examples/                          # Working demos (6 examples)
+├── examples/                          # Working demos (7 examples)
 │   ├── __init__.py
 │   ├── two_agents_local.py            # LocalHub query/reply demo
 │   ├── two_agents_tcp.py              # TCP socket query/reply demo
 │   ├── mesh_discovery.py              # Dynamic peer discovery + late arrivals
 │   ├── async_file_queue.py            # File-based persistent messaging
 │   ├── be2_agents.py                  # BE-2 pipeline as communicating agents
-│   └── corridor_relay.py              # Multi-transport corridor relay (CB/LoRa/HAM)
+│   ├── corridor_relay.py              # Multi-transport corridor relay (CB/LoRa/HAM)
+│   └── emergency_mesh.py             # Emergency phone mesh (BLE + WiFi Direct)
 │
 ├── icosahedral_lightbridge.py         # Core 6-stage geometric pipeline
 ├── be2_lightbridge.py                 # BE-2 pipeline with meta-awareness & thermal model
 ├── octahedral_bridge.py               # Octahedral tensor mapping, dispatcher & FELTSensor
-└── udp_mesh_spec.py                   # UDP mesh protocol spec & implementation (CRC16)
+├── udp_mesh_spec.py                   # UDP mesh protocol spec & implementation (CRC16)
+└── emergency_mesh_spec.py             # Emergency mesh protocol spec (SOS, relay, CRC16)
 ```
 
 ## Tech Stack
 
 - **Language**: Python 3.9+ (pipeline files use PEP 585 generic type syntax)
 - **Dependencies**: Standard library (`math`, `random`, `struct`, `json`, `socket`, `threading`, `queue`, `uuid`, `time`, `pathlib`, `abc`, `dataclasses`, `typing`) plus `numpy` (for `octahedral_bridge.py`)
-- **Optional**: `pyserial` for real LoRa/HAM hardware (simulator fallback included)
+- **Optional**: `pyserial` for real LoRa/HAM hardware, `bleak` for BLE (simulator fallback included for all)
 - **No build system**: No setup.py, pyproject.toml, or requirements.txt
 - **No external tooling**: No linter, formatter, or CI/CD configured
 
@@ -82,6 +87,32 @@ Transport-agnostic agent framework. Agents arrive, announce, listen, negotiate.
 | `lora.py` | `LoRaTransport` | LoRa serial radio with chunking/reassembly. Falls back to file-based simulator |
 | `ham.py` | `HAMTransport` | AX.25/KISS TNC for amateur radio. KISS framing + chunking. Falls back to simulator |
 | `cb.py` | `CBTransport` | CB radio (channel 19). Audio-based with simulator for development |
+| `ble.py` | `BLETransport` | Bluetooth Low Energy mesh with relay, dedup, TTL, SOS flags. Falls back to simulator |
+| `wifi_direct.py` | `WiFiDirectTransport` | WiFi Direct (P2P) for high-bandwidth phone-to-phone. Falls back to simulator |
+
+### emergency_mesh_spec.py — Emergency Phone Mesh Protocol
+
+Protocol spec for phone-to-phone emergency communication when infrastructure is down.
+
+**Packet layout**: `[Header 22B] + [Payload NB] + [CRC16 2B]`
+
+| Header Field | Offset | Size | Description |
+|--------------|--------|------|-------------|
+| Magic | 0x00 | 4B | "EM01" |
+| Version | 0x04 | 1B | Protocol version (0x01) |
+| Message Type | 0x05 | 1B | SOS, LOCATION, STATUS, SUPPLY, TEXT, EVACUATE, etc. |
+| Priority | 0x06 | 1B | CRITICAL, HIGH, NORMAL, LOW |
+| TTL | 0x07 | 1B | Relay hop limit (max 15) |
+| Hop Count | 0x08 | 1B | Incremented on each relay |
+| Flags | 0x09 | 1B | NEEDS_ACK, IS_RELAY, HAS_GPS, BATTERY_LOW |
+| Sender Hash | 0x0A | 4B | SHA-256 prefix of device ID |
+| Timestamp | 0x0E | 4B | Unix epoch |
+| Sequence | 0x12 | 2B | Per-sender sequence number |
+| Payload Len | 0x14 | 2B | JSON payload size |
+
+Key classes: `EmergencyPacket` (encode/decode), `MeshRelay` (dedup + TTL relay logic).
+
+Message builders: `sos_packet()`, `location_packet()`, `supply_packet()`, `text_packet()`, `evacuate_packet()`, `discover_packet()`.
 
 ### icosahedral_lightbridge.py — Core Pipeline
 
@@ -170,6 +201,7 @@ python icosahedral_lightbridge.py   # Core pipeline tests
 python be2_lightbridge.py           # BE-2 governed pipeline tests
 python udp_mesh_spec.py             # UDP mesh round-trip & integrity tests
 python octahedral_bridge.py         # Tensor mapping, dispatcher & FELTSensor tests
+python emergency_mesh_spec.py       # Emergency mesh protocol tests
 ```
 
 Agent protocol examples (run from repo root):
@@ -181,6 +213,7 @@ python -m examples.mesh_discovery     # Dynamic peer discovery
 python -m examples.async_file_queue   # File-based persistent messaging
 python -m examples.be2_agents         # BE-2 pipeline as agents
 python -m examples.corridor_relay     # Multi-transport corridor relay
+python -m examples.emergency_mesh     # Emergency phone mesh (BLE + WiFi Direct)
 ```
 
 Note: `octahedral_bridge.py` requires `numpy` (`pip install numpy`).
