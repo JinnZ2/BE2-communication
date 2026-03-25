@@ -11,6 +11,8 @@ from transports.udp import UDPTransport
 from transports.lora import LoRaTransport
 from transports.ham import HAMTransport
 from transports.cb import CBTransport
+from transports.ble import BLETransport
+from transports.wifi_direct import WiFiDirectTransport
 
 __all__ = [
     "LocalHub",
@@ -21,4 +23,6 @@ __all__ = [
     "LoRaTransport",
     "HAMTransport",
     "CBTransport",
+    "BLETransport",
+    "WiFiDirectTransport",
 ]
