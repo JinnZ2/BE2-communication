@@ -45,19 +45,26 @@ class TCPTransport(Transport):
         self._accept_thread: Optional[threading.Thread] = None
         self._running = False
 
+    @property
+    def transport_name(self) -> str:
+        return f"TCP({self.host}:{self.port})"
+
     def add_peer(self, agent_id: str, host: str, port: int):
         """Register a known peer's address for direct sends."""
         self._peers[agent_id] = (host, port)
 
-    def send(self, msg: Message, target: str) -> None:
+    def send(self, msg: Message, target: str = "") -> bool:
         addr = self._peers.get(target)
         if not addr:
-            return
-        self._tcp_send(msg, addr)
+            return False
+        return self._tcp_send(msg, addr)
 
-    def broadcast(self, msg: Message) -> None:
+    def broadcast(self, msg: Message) -> int:
+        count = 0
         for addr in list(self._peers.values()):
-            self._tcp_send(msg, addr)
+            if self._tcp_send(msg, addr):
+                count += 1
+        return count
 
     def receive(self) -> Optional[Message]:
         try:
@@ -91,16 +98,17 @@ class TCPTransport(Transport):
 
     # ── internals ────────────────────────────
 
-    def _tcp_send(self, msg: Message, addr: Tuple[str, int]):
-        data = msg.serialize()
+    def _tcp_send(self, msg: Message, addr: Tuple[str, int]) -> bool:
+        data = msg.to_bytes()
         frame = struct.pack(self.HEADER_FMT, len(data)) + data
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(2.0)
                 s.connect(addr)
                 s.sendall(frame)
+            return True
         except OSError:
-            pass  # graceful degradation: silent agents get worked around
+            return False
 
     def _accept_loop(self):
         while self._running:
@@ -124,12 +132,14 @@ class TCPTransport(Transport):
             data = self._recv_exact(conn, length)
             if not data:
                 return
-            msg = Message.deserialize(data)
-            self._inbox.put(msg)
-            if self._callback:
-                self._callback(msg)
+            msg = Message.from_bytes(data)
+            if msg:
+                if self._callback:
+                    self._callback(msg)
+                else:
+                    self._inbox.put(msg)
         except (OSError, json.JSONDecodeError, KeyError):
-            pass  # malformed messages get ignored, not crashed on
+            pass  # malformed messages get ignored
         finally:
             conn.close()
 

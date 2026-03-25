@@ -1,5 +1,5 @@
 """
-core — Agent-protocol core: Agent, Message, AgentState, Transport.
+core -- Agent-protocol core: Agent, Message, AgentState, Transport.
 
 Released CC0.
 """
@@ -15,6 +15,7 @@ from core.message import (
     REPLY,
     STATE,
     STUCK,
+    VALID_VERBS,
     Message,
 )
 from core.state import AgentState
@@ -34,4 +35,5 @@ __all__ = [
     "STUCK",
     "BYE",
     "ALL_VERBS",
+    "VALID_VERBS",
 ]

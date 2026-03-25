@@ -105,20 +105,29 @@ Implement `core.Transport`:
 ## Repo Structure
 
 ```
-agent-protocol/
-├── core/
-│   ├── agent.py        # Base Agent class
-│   ├── message.py      # Message format
-│   ├── state.py        # Agent state snapshot
-│   └── transport.py    # Transport interface
-├── transports/
-│   ├── local.py        # In-process hub
-│   ├── tcp.py          # TCP sockets
-│   └── file_queue.py   # File-based async
-├── examples/
-│   ├── two_agents_local.py
-│   └── two_agents_tcp.py
-└── README.md
+BE2-communication/
+├── core/                              # Agent protocol core
+│   ├── __init__.py                    # Package exports (Agent, Message, etc.)
+│   ├── agent.py                       # Base Agent class
+│   ├── message.py                     # Message dataclass + verb constants
+│   ├── state.py                       # AgentState snapshot
+│   └── transport.py                   # Abstract Transport interface
+├── transports/                        # Pluggable transport backends
+│   ├── __init__.py                    # Package exports
+│   ├── local.py                       # LocalHub + LocalTransport (in-process)
+│   ├── tcp.py                         # TCPTransport (length-prefixed JSON)
+│   └── file_queue.py                  # FileQueueTransport (file-based async)
+├── examples/                          # Working demos
+│   ├── __init__.py
+│   ├── two_agents_local.py            # LocalHub query/reply demo
+│   └── two_agents_tcp.py              # TCP socket query/reply demo
+├── icosahedral_lightbridge.py         # Core 6-stage geometric pipeline
+├── be2_lightbridge.py                 # BE-2 pipeline with meta-awareness & thermal model
+├── octahedral_bridge.py               # Octahedral tensor mapping & sovereign dispatcher
+├── udp_mesh_spec.py                   # UDP mesh protocol spec & implementation (CRC16)
+├── CLAUDE.md                          # Project architecture guide
+├── README.md                          # This file
+└── LICENSE                            # CC0 1.0 Universal
 ```
 
 ## License

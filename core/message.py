@@ -1,24 +1,34 @@
 """
-core/message.py — Message format for agent-protocol.
+message.py — Agent Communication Message
 
-Messages are the sole unit of communication between agents. Each message
-carries a verb, sender, optional recipient, and a freeform payload dict.
-Wire format is JSON-over-UTF-8 so humans can debug by reading the wire.
+Format: plaintext-first, machine-parseable second.
+No rigid schema. Listeners extract what makes sense to them.
+
+Message types (verbs):
+ANNOUNCE  -- "I'm here, this is what I do"
+QUERY     -- "Do you know about X?"
+STATE     -- "Here's where I am right now"
+OFFER     -- "I have X if you need it"
+REPLY     -- "Here's what you asked about"
+DONE      -- "I finished X"
+STUCK     -- "I need help with X"
+BYE       -- "I'm leaving"
 
 Released CC0.
 """
 
-import json
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+import json
+from dataclasses import dataclass, field, asdict
+from typing import Optional, Any
 
+VALID_VERBS = frozenset({
+    "ANNOUNCE", "QUERY", "STATE", "OFFER",
+    "REPLY", "DONE", "STUCK", "BYE",
+})
 
-# ─────────────────────────────────────────────
-# Verb constants
-# ─────────────────────────────────────────────
-
+# Aliases for backward compatibility
 ANNOUNCE = "ANNOUNCE"
 QUERY = "QUERY"
 STATE = "STATE"
@@ -27,62 +37,120 @@ REPLY = "REPLY"
 DONE = "DONE"
 STUCK = "STUCK"
 BYE = "BYE"
+ALL_VERBS = VALID_VERBS
 
-ALL_VERBS = {ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE}
-
-
-# ─────────────────────────────────────────────
-# Message dataclass
-# ─────────────────────────────────────────────
 
 @dataclass
 class Message:
-    """
-    A single protocol message.
-
-    Attributes:
-        verb:       One of the ALL_VERBS constants.
-        sender:     ID of the sending agent.
-        recipient:  ID of the target agent, or None for broadcast.
-        payload:    Arbitrary dict of data.
-        msg_id:     Unique message identifier (auto-generated).
-        timestamp:  Unix timestamp (auto-generated).
-        in_reply_to: msg_id of the message this is responding to (optional).
-    """
-    verb: str
-    sender: str
-    recipient: Optional[str] = None
-    payload: Dict[str, Any] = field(default_factory=dict)
+    verb: str                              # What kind of speech act
+    sender: str                            # Who's talking
+    body: Any = None                       # Payload (string, dict, whatever)
+    topic: str = ""                        # What domain / subject
+    recipient: str = ""                    # Empty = broadcast to all
+    in_reply_to: str = ""                  # Message ID this responds to
     msg_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     timestamp: float = field(default_factory=time.time)
-    in_reply_to: Optional[str] = None
 
-    def serialize(self) -> bytes:
-        """Encode message to JSON bytes for wire transmission."""
-        return json.dumps({
-            "verb": self.verb,
-            "sender": self.sender,
-            "recipient": self.recipient,
-            "payload": self.payload,
-            "msg_id": self.msg_id,
-            "timestamp": self.timestamp,
-            "in_reply_to": self.in_reply_to,
-        }).encode("utf-8")
+    def __post_init__(self):
+        self.verb = self.verb.upper()
+
+    # ── Payload alias for backward compatibility ──
+
+    @property
+    def payload(self):
+        return self.body
+
+    @payload.setter
+    def payload(self, value):
+        self.body = value
+
+    # ── Serialization ──────────────────────────
+
+    def to_bytes(self) -> bytes:
+        """Serialize to wire format (JSON)."""
+        return json.dumps(asdict(self), default=str).encode("utf-8")
+
+    # Alias for backward compatibility
+    serialize = to_bytes
+
+    @classmethod
+    def from_bytes(cls, raw: bytes) -> Optional["Message"]:
+        """
+        Best-effort parse. Returns None if unintelligible.
+        Graceful degradation -- malformed messages don't crash anything.
+        """
+        try:
+            d = json.loads(raw.decode("utf-8"))
+            return cls(**{k: v for k, v in d.items()
+                         if k in cls.__dataclass_fields__})
+        except Exception:
+            return None
 
     @classmethod
     def deserialize(cls, data: bytes) -> "Message":
-        """Decode JSON bytes back into a Message."""
+        """Decode JSON bytes back into a Message. Raises on failure."""
         d = json.loads(data.decode("utf-8"))
-        return cls(
-            verb=d["verb"],
-            sender=d["sender"],
-            recipient=d.get("recipient"),
-            payload=d.get("payload", {}),
-            msg_id=d.get("msg_id", uuid.uuid4().hex[:12]),
-            timestamp=d.get("timestamp", time.time()),
-            in_reply_to=d.get("in_reply_to"),
-        )
+        return cls(**{k: v for k, v in d.items()
+                     if k in cls.__dataclass_fields__})
+
+    # ── Human-readable ─────────────────────────
+
+    def __str__(self) -> str:
+        target = f" -> {self.recipient}" if self.recipient else " -> *"
+        topic_str = f" [{self.topic}]" if self.topic else ""
+        body_preview = ""
+        if self.body:
+            s = str(self.body)
+            body_preview = f" | {s[:80]}{'...' if len(s) > 80 else ''}"
+        return f"{self.verb}{target} from {self.sender}{topic_str}{body_preview}"
 
     def __repr__(self):
         to = self.recipient or "BROADCAST"
-        return f"Message({self.verb}, {self.sender}->{to}, payload={self.payload})"
+        return f"Message({self.verb}, {self.sender}->{to}, body={self.body})"
+
+    # ── Convenience constructors ───────────────
+
+    @classmethod
+    def announce(cls, sender: str, capabilities: list,
+                 **kwargs) -> "Message":
+        return cls(verb="ANNOUNCE", sender=sender,
+                   body={"capabilities": capabilities}, **kwargs)
+
+    @classmethod
+    def query(cls, sender: str, question, topic: str = "",
+              recipient: str = "", **kwargs) -> "Message":
+        return cls(verb="QUERY", sender=sender, body=question,
+                   topic=topic, recipient=recipient, **kwargs)
+
+    @classmethod
+    def state(cls, sender: str, snapshot,
+              **kwargs) -> "Message":
+        return cls(verb="STATE", sender=sender, body=snapshot, **kwargs)
+
+    @classmethod
+    def offer(cls, sender: str, what, topic: str = "",
+              recipient: str = "", **kwargs) -> "Message":
+        return cls(verb="OFFER", sender=sender, body=what,
+                   topic=topic, recipient=recipient, **kwargs)
+
+    @classmethod
+    def reply(cls, sender: str, body: Any,
+              original: "Message", **kwargs) -> "Message":
+        return cls(verb="REPLY", sender=sender, body=body,
+                   recipient=original.sender,
+                   in_reply_to=original.msg_id,
+                   topic=original.topic, **kwargs)
+
+    @classmethod
+    def done(cls, sender: str, what: str, **kwargs) -> "Message":
+        return cls(verb="DONE", sender=sender, body=what, **kwargs)
+
+    @classmethod
+    def stuck(cls, sender: str, problem: str, topic: str = "",
+              **kwargs) -> "Message":
+        return cls(verb="STUCK", sender=sender, body=problem,
+                   topic=topic, **kwargs)
+
+    @classmethod
+    def bye(cls, sender: str, **kwargs) -> "Message":
+        return cls(verb="BYE", sender=sender, **kwargs)
