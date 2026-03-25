@@ -44,7 +44,7 @@ BE2-communication/
 
 ## Tech Stack
 
-- **Language**: Python (3.7+ required for dataclasses)
+- **Language**: Python 3.9+ (pipeline files use PEP 585 generic type syntax)
 - **Dependencies**: Standard library (`math`, `random`, `struct`, `json`, `socket`, `threading`, `queue`, `uuid`, `time`, `pathlib`, `abc`, `dataclasses`, `typing`) plus `numpy` (for `octahedral_bridge.py`)
 - **No build system**: No setup.py, pyproject.toml, or requirements.txt
 - **No external tooling**: No linter, formatter, or CI/CD configured
@@ -146,7 +146,7 @@ Key constant: `TRANSITION_MATRIX` — 8x8 numpy array of transition costs (0=sam
 
 ### Pipeline Status Values
 
-`INIT`, `STABLE`, `HALTED`, `RECALIBRATE`, `HARD_STOP`, `STALL_GROWTH`, `REJECTED`, `COMMITTED`, `IDLE_RECOVERY`, `SURVIVAL`
+`INIT`, `STABLE`, `HALTED`, `RECALIBRATE`, `HARD_STOP`, `STALL_GROWTH`, `STALLED`, `REJECTED`, `COMMITTED`, `IDLE_RECOVERY`, `SURVIVAL`
 
 ## Running the Code
 
