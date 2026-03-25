@@ -32,6 +32,7 @@ BE2-communication/
 │   └── file_queue.py                  # FileQueueTransport (file-based async)
 │
 ├── examples/                          # Working demos
+│   ├── __init__.py
 │   ├── two_agents_local.py            # LocalHub query/reply demo
 │   └── two_agents_tcp.py              # TCP socket query/reply demo
 │

@@ -125,9 +125,10 @@ class TCPTransport(Transport):
             if not data:
                 return
             msg = Message.deserialize(data)
-            self._inbox.put(msg)
             if self._callback:
                 self._callback(msg)
+            else:
+                self._inbox.put(msg)
         except (OSError, json.JSONDecodeError, KeyError):
             pass  # malformed messages get ignored, not crashed on
         finally:

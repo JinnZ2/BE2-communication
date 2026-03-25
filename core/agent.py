@@ -148,8 +148,4 @@ class Agent:
         with self._lock:
             self.state.add_peer(msg.sender)
             self.state.touch()
-
-            if msg.verb == ANNOUNCE:
-                self.state.add_peer(msg.sender)
-
             self.on_message(msg)
