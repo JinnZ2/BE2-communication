@@ -6,6 +6,7 @@
 
 1. **Agent Protocol** (documented in README, not yet implemented) — a transport-agnostic framework where agents discover each other opportunistically using message verbs (ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE).
 2. **Geometric Computation Pipelines** (implemented) — icosahedral lattice-based signal processing pipelines with thermal gating and meta-awareness.
+3. **UDP Mesh Protocol** (spec + implementation) — byte-level LAN UDP mesh for agent-to-agent communication with CRC16 integrity.
 
 License: **CC0 — Public Domain**
 
@@ -17,7 +18,8 @@ BE2-communication/
 ├── README.md                      # Agent-protocol documentation
 ├── LICENSE                        # CC0 1.0 Universal
 ├── be2_lightbridge.py             # Full BE-2 pipeline with meta-awareness & thermal model
-└── icosahedral_lightbridge.py     # Core 6-stage geometric pipeline
+├── icosahedral_lightbridge.py     # Core 6-stage geometric pipeline
+└── udp_mesh_spec.py               # UDP mesh protocol spec & implementation (CRC16)
 ```
 
 The README describes a planned `core/`, `transports/`, and `examples/` directory structure that is **not yet implemented**.
@@ -25,7 +27,7 @@ The README describes a planned `core/`, `transports/`, and `examples/` directory
 ## Tech Stack
 
 - **Language**: Python (3.7+ required for dataclasses)
-- **Dependencies**: Standard library only (`math`, `random`, `dataclasses`, `typing`)
+- **Dependencies**: Standard library only (`math`, `random`, `struct`, `json`, `dataclasses`, `typing`)
 - **No build system**: No setup.py, pyproject.toml, or requirements.txt
 - **No external tooling**: No linter, formatter, or CI/CD configured
 
@@ -69,6 +71,24 @@ Key behaviors:
 - **Survival mode**: Redirects all energy to substrate preservation
 - **Thermal cycling**: 480C start, +8C/step heat, 40C cooling pulses
 
+### udp_mesh_spec.py — UDP Mesh Protocol
+
+Byte-level LAN UDP protocol for agent communication with CRC16 integrity.
+
+**Packet layout**: `[Header 8B] + [Payload NB] + [CRC16 2B]`
+
+| Header Field | Offset | Size | Description |
+|--------------|--------|------|-------------|
+| Version | 0x00 | 1B | Protocol version (0x01) |
+| Packet Type | 0x01 | 1B | 0x01=QUERY, 0x02=REPLY, 0x03=DISCOVER |
+| Sender ID | 0x02 | 2B | Unique 16-bit agent ID |
+| Recipient ID | 0x04 | 2B | 0xFFFF = broadcast |
+| Payload Length | 0x06 | 2B | Payload size in bytes (max ~512 recommended) |
+
+Key class: `UDPMeshPacket` with `encode()` / `decode()` methods and CRC-16/CCITT-False integrity verification.
+
+Payload is JSON-encoded UTF-8. Supports optional SHELL/ENERGY extension messages for growth/exploration signaling.
+
 ### Shared Constants
 
 - `PHI` — Golden ratio: `(1 + sqrt(5)) / 2`
@@ -82,11 +102,12 @@ Key behaviors:
 
 ## Running the Code
 
-Both files are self-contained with inline tests:
+All files are self-contained with inline tests:
 
 ```bash
 python icosahedral_lightbridge.py   # Runs core pipeline tests
 python be2_lightbridge.py           # Runs BE-2 governed pipeline tests
+python udp_mesh_spec.py             # Runs UDP mesh round-trip & integrity tests
 ```
 
 There is no test framework (pytest/unittest). Tests run via `if __name__ == "__main__":` blocks.
