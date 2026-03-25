@@ -19,6 +19,7 @@ BE2-communication/
 ├── LICENSE                        # CC0 1.0 Universal
 ├── be2_lightbridge.py             # Full BE-2 pipeline with meta-awareness & thermal model
 ├── icosahedral_lightbridge.py     # Core 6-stage geometric pipeline
+├── octahedral_bridge.py           # Octahedral tensor mapping, dispatcher & FELTSensor
 └── udp_mesh_spec.py               # UDP mesh protocol spec & implementation (CRC16)
 ```
 
@@ -27,7 +28,7 @@ The README describes a planned `core/`, `transports/`, and `examples/` directory
 ## Tech Stack
 
 - **Language**: Python (3.7+ required for dataclasses)
-- **Dependencies**: Standard library only (`math`, `random`, `struct`, `json`, `dataclasses`, `typing`)
+- **Dependencies**: Standard library (`math`, `random`, `struct`, `json`, `dataclasses`, `typing`) plus `numpy` (for `octahedral_bridge.py`)
 - **No build system**: No setup.py, pyproject.toml, or requirements.txt
 - **No external tooling**: No linter, formatter, or CI/CD configured
 
@@ -89,6 +90,19 @@ Key class: `UDPMeshPacket` with `encode()` / `decode()` methods and CRC-16/CCITT
 
 Payload is JSON-encoded UTF-8. Supports optional SHELL/ENERGY extension messages for growth/exploration signaling.
 
+### octahedral_bridge.py — Octahedral Tensor Mapping & Sovereign Dispatcher
+
+Maps the 8 stable positions of a diamond cubic unit cell to tensor states via sp3 hybrid orbital projections. Requires `numpy`.
+
+| Class | Purpose |
+|-------|---------|
+| `OctahedralBridge` | Constructs orbital tensors for 8 unit cell positions; senses state via eigenvalue spectrum and anisotropy |
+| `MightyAtomDispatcher` | Finds lowest-entropy paths through the 8x8 transition cost matrix (cost 0-3); supports single and two-hop relays |
+| `SovereignDispatcher` | Integrates dispatcher + FELTSensor; halts on high friction or low coherence |
+| `FELTSensor` | Phase 6 handshake — monitors felt_level (0.0-2.0) and triggers Micro-Clarification halt when threshold crossed |
+
+Key constant: `TRANSITION_MATRIX` — 8x8 numpy array of transition costs (0=same, 1=direct, 2=relay, 3=avoid).
+
 ### Shared Constants
 
 - `PHI` — Golden ratio: `(1 + sqrt(5)) / 2`
@@ -108,7 +122,10 @@ All files are self-contained with inline tests:
 python icosahedral_lightbridge.py   # Runs core pipeline tests
 python be2_lightbridge.py           # Runs BE-2 governed pipeline tests
 python udp_mesh_spec.py             # Runs UDP mesh round-trip & integrity tests
+python octahedral_bridge.py         # Runs tensor mapping, dispatcher & FELTSensor tests
 ```
+
+Note: `octahedral_bridge.py` requires `numpy` (`pip install numpy`).
 
 There is no test framework (pytest/unittest). Tests run via `if __name__ == "__main__":` blocks.
 
