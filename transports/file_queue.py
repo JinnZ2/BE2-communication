@@ -2,7 +2,6 @@
 transports/file_queue.py — File-based async transport for agent-protocol.
 
 File-based message passing. Works across processes, survives restarts.
-For intermittent connectivity, truck-stop-to-base sync.
 
 Each agent watches an inbox directory for new .msg files. Messages are
 written atomically (write-to-tmp then rename) to avoid partial reads.
@@ -35,11 +34,11 @@ class FileQueueTransport(Transport):
         t.start_listening(callback)
     """
 
-    POLL_INTERVAL = 0.25  # seconds between inbox scans
-
-    def __init__(self, agent_id: str, queue_dir: str):
+    def __init__(self, agent_id: str, queue_dir: str,
+                 poll_interval: float = 0.25):
         self.agent_id = agent_id
         self.queue_dir = Path(queue_dir)
+        self.poll_interval = poll_interval
         self._inbox_dir = self.queue_dir / agent_id
         self._broadcast_dir = self.queue_dir / "_broadcast"
         self._callback: Optional[Callable[[Message], None]] = None
@@ -51,13 +50,19 @@ class FileQueueTransport(Transport):
         self._inbox_dir.mkdir(parents=True, exist_ok=True)
         self._broadcast_dir.mkdir(parents=True, exist_ok=True)
 
-    def send(self, msg: Message, target: str) -> None:
+    @property
+    def transport_name(self) -> str:
+        return f"FileQueue({self.agent_id})"
+
+    def send(self, msg: Message, target: str = "") -> bool:
         target_dir = self.queue_dir / target
         target_dir.mkdir(parents=True, exist_ok=True)
         self._write_message(msg, target_dir)
+        return True
 
-    def broadcast(self, msg: Message) -> None:
+    def broadcast(self, msg: Message) -> int:
         self._write_message(msg, self._broadcast_dir)
+        return 1
 
     def receive(self) -> Optional[Message]:
         for msg_file in sorted(self._inbox_dir.glob("*.msg")):
@@ -102,7 +107,7 @@ class FileQueueTransport(Transport):
             dir=str(target_dir), suffix=".tmp"
         )
         try:
-            os.write(fd, msg.serialize())
+            os.write(fd, msg.to_bytes())
         finally:
             os.close(fd)
         os.rename(tmp_path, str(target_dir / filename))
@@ -111,7 +116,7 @@ class FileQueueTransport(Transport):
     def _read_message(path: Path) -> Optional[Message]:
         try:
             data = path.read_bytes()
-            return Message.deserialize(data)
+            return Message.from_bytes(data)
         except (json.JSONDecodeError, KeyError, OSError):
             return None  # graceful degradation
 
@@ -119,7 +124,7 @@ class FileQueueTransport(Transport):
         while self._running:
             self._scan_dir(self._inbox_dir)
             self._scan_dir(self._broadcast_dir)
-            time.sleep(self.POLL_INTERVAL)
+            time.sleep(self.poll_interval)
 
     def _scan_dir(self, directory: Path):
         try:

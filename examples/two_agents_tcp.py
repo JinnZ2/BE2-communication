@@ -11,9 +11,10 @@ Released CC0.
 """
 
 import sys
+import os
 import time
 
-sys.path.insert(0, ".")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Agent, Message
 from transports import TCPTransport
@@ -24,10 +25,10 @@ class ResponderAgent(Agent):
 
     def on_message(self, msg: Message):
         if msg.verb == "QUERY":
-            question = msg.payload.get("question", "")
-            print(f"  [{self.agent_id}] received QUERY: {question!r}")
-            self.reply_to(msg, {"greeting": f"Hello from {self.agent_id}!"})
-            print(f"  [{self.agent_id}] sent REPLY")
+            question = msg.body
+            print(f"  [{self.id}] received QUERY: {question!r}")
+            self.reply_to(msg, {"greeting": f"Hello from {self.id}!"})
+            print(f"  [{self.id}] sent REPLY")
 
 
 class RequesterAgent(Agent):
@@ -39,9 +40,9 @@ class RequesterAgent(Agent):
 
     def on_message(self, msg: Message):
         if msg.verb == "REPLY":
-            greeting = msg.payload.get("greeting", "")
+            greeting = msg.body
             self.replies.append(greeting)
-            print(f"  [{self.agent_id}] received REPLY: {greeting!r}")
+            print(f"  [{self.id}] received REPLY: {greeting!r}")
 
 
 def main():
@@ -58,9 +59,15 @@ def main():
     transport_a.add_peer("requester", "127.0.0.1", port_b)
     transport_b.add_peer("responder", "127.0.0.1", port_a)
 
-    responder = ResponderAgent("responder", transport=transport_a,
-                               capabilities=["greeting"])
-    requester = RequesterAgent("requester", transport=transport_b)
+    responder = ResponderAgent(
+        "responder", "Responder",
+        transport_a,
+        capabilities=["greeting"],
+    )
+    requester = RequesterAgent(
+        "requester", "Requester",
+        transport_b,
+    )
 
     # Start listening
     print("Starting agents on TCP ports...")
@@ -78,7 +85,7 @@ def main():
     # Verify
     print(f"\nReplies collected: {requester.replies}")
     assert len(requester.replies) == 1
-    assert "Hello from responder!" in requester.replies[0]
+    assert "Hello from responder!" in str(requester.replies[0])
     print("PASS: TCP query/reply round-trip succeeded")
 
     # Clean shutdown

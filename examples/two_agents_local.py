@@ -11,9 +11,10 @@ Released CC0.
 """
 
 import sys
+import os
 import time
 
-sys.path.insert(0, ".")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Agent, Message
 from transports import LocalHub, LocalTransport
@@ -24,10 +25,10 @@ class MathAgent(Agent):
 
     def on_message(self, msg: Message):
         if msg.verb == "QUERY":
-            question = msg.payload.get("question", "")
-            print(f"  [{self.agent_id}] received QUERY: {question!r}")
+            question = msg.body
+            print(f"  [{self.id}] received QUERY: {question!r}")
             self.reply_to(msg, {"answer": "42"})
-            print(f"  [{self.agent_id}] sent REPLY: 42")
+            print(f"  [{self.id}] sent REPLY: 42")
 
 
 class CuriousAgent(Agent):
@@ -39,14 +40,16 @@ class CuriousAgent(Agent):
 
     def on_message(self, msg: Message):
         if msg.verb == "ANNOUNCE":
-            caps = msg.payload.get("capabilities", [])
-            print(f"  [{self.agent_id}] discovered {msg.sender} "
+            caps = []
+            if isinstance(msg.body, dict):
+                caps = msg.body.get("capabilities", [])
+            print(f"  [{self.id}] discovered {msg.sender} "
                   f"with capabilities: {caps}")
 
         elif msg.verb == "REPLY":
-            answer = msg.payload.get("answer")
+            answer = msg.body
             self.replies.append(answer)
-            print(f"  [{self.agent_id}] received REPLY: {answer}")
+            print(f"  [{self.id}] received REPLY: {answer}")
 
 
 def main():
@@ -56,11 +59,15 @@ def main():
     hub = LocalHub()
 
     # Create two agents
-    math_t = LocalTransport("math_agent", hub)
-    curious_t = LocalTransport("curious_agent", hub)
-
-    math = MathAgent("math_agent", transport=math_t, capabilities=["math"])
-    curious = CuriousAgent("curious_agent", transport=curious_t)
+    math = MathAgent(
+        "math_agent", "MathService",
+        LocalTransport("math_agent", hub),
+        capabilities=["math"],
+    )
+    curious = CuriousAgent(
+        "curious_agent", "Curious",
+        LocalTransport("curious_agent", hub),
+    )
 
     # Start both agents (each announces itself)
     print("Starting agents...")
@@ -79,9 +86,9 @@ def main():
 
     # Verify
     print(f"\nReplies collected: {curious.replies}")
-    assert curious.replies == ["42"], f"Expected ['42'], got {curious.replies}"
-    assert "math_agent" in curious.state.known_peers
-    assert "curious_agent" in math.state.known_peers
+    assert curious.replies == [{"answer": "42"}], f"Expected [{{'answer': '42'}}], got {curious.replies}"
+    assert "math_agent" in curious.peers
+    assert "curious_agent" in math.peers
     print("PASS: Query/Reply round-trip succeeded")
 
     # Clean shutdown

@@ -1,48 +1,54 @@
 """
-core/transport.py — Abstract transport interface for agent-protocol.
+transport.py — Transport Interface
 
-Transports are pluggable: agents don't care how messages arrive.
-TCP, UDP, LoRa, file queue, HAM radio — same interface.
+An agent doesn't care HOW a message arrived.
+TCP? LoRa? Written on paper and scanned?
+It just cares: Is this intelligible? Is it useful?
 
-To add a transport, subclass Transport and implement all abstract methods.
+Every transport implements the same interface:
+send(message, target?)  -- push a message out
+receive()               -- pull next message (non-blocking)
+broadcast(message)      -- send to everyone listening
+listen(callback)        -- start receiving in background
+close()                 -- shut down cleanly
 
 Released CC0.
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Optional, Callable
 
 from core.message import Message
 
 
 class Transport(ABC):
-    """
-    Abstract base class for all transports.
-
-    A transport moves Message objects between agents. It does not
-    interpret message content — that is the agent's job.
-    """
+    """Base transport -- all transports implement this."""
 
     @abstractmethod
-    def send(self, msg: Message, target: str) -> None:
-        """Send a message to a specific agent by ID."""
+    def send(self, msg: Message, target: str = "") -> bool:
+        """Send to a specific target. Returns True if sent."""
 
     @abstractmethod
-    def broadcast(self, msg: Message) -> None:
-        """Send a message to all reachable agents."""
+    def broadcast(self, msg: Message) -> int:
+        """Send to all known peers. Returns count of sends."""
 
     @abstractmethod
     def receive(self) -> Optional[Message]:
-        """Non-blocking pull. Returns a Message or None."""
+        """Non-blocking receive. Returns None if nothing waiting."""
 
     @abstractmethod
     def start_listening(self, callback: Callable[[Message], None]) -> None:
-        """Start background receive loop, calling callback for each message."""
+        """Start background listener that calls callback on each message."""
 
     @abstractmethod
     def stop_listening(self) -> None:
-        """Stop the background receive loop."""
+        """Stop background listener."""
 
     @abstractmethod
     def close(self) -> None:
-        """Release all resources (sockets, files, threads)."""
+        """Clean shutdown."""
+
+    @property
+    @abstractmethod
+    def transport_name(self) -> str:
+        """Human-readable name for logging."""

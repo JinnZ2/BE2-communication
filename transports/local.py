@@ -19,7 +19,7 @@ class LocalHub:
     In-process message router.
 
     Agents register via their LocalTransport. Messages are routed through
-    thread-safe queues — no sockets, no serialization overhead.
+    thread-safe queues -- no sockets, no serialization overhead.
     """
 
     def __init__(self):
@@ -68,11 +68,17 @@ class LocalTransport(Transport):
         self._running = False
         hub.register(agent_id, self)
 
-    def send(self, msg: Message, target: str) -> None:
-        self.hub.route(msg, target)
+    @property
+    def transport_name(self) -> str:
+        return f"Local({self.agent_id})"
 
-    def broadcast(self, msg: Message) -> None:
+    def send(self, msg: Message, target: str = "") -> bool:
+        self.hub.route(msg, target)
+        return True
+
+    def broadcast(self, msg: Message) -> int:
         self.hub.broadcast(msg)
+        return 1
 
     def receive(self) -> Optional[Message]:
         try:

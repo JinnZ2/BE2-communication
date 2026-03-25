@@ -1,151 +1,283 @@
 """
-core/agent.py — Base Agent class for agent-protocol.
+agent.py — Base Agent
 
-Agents show up and talk. No handshake ceremony, no approval flow.
-Opportunistic discovery: you know who you've met, that's it.
+An agent shows up, announces itself, listens for what's available,
+and negotiates on the fly. No permission gates, no central registry.
 
-Subclass Agent and override on_message() to build custom behaviors.
+Lifecycle:
+1. Create agent with a transport
+2. agent.start()  -- announces presence, starts listening
+3. agent.ask()    -- fire a question (don't block waiting)
+4. agent.share()  -- publish your current state
+5. agent.stop()   -- say goodbye, shut down
+
+Agents maintain a local directory of peers they've heard from.
+No central registry. You know who you've met, that's it.
+
+Override on_message() to define how your agent responds to
+incoming messages. The base implementation handles:
+- ANNOUNCE -- add to peer directory
+- STATE    -- update peer state cache
+- BYE      -- mark peer offline
 
 Released CC0.
 """
 
+import time
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Optional, Callable, Any
 
-from core.message import (
-    ANNOUNCE, BYE, DONE, OFFER, QUERY, REPLY, STATE, STUCK, Message,
-)
+from core.message import Message
 from core.state import AgentState
 from core.transport import Transport
 
 
 class Agent:
-    """
-    Base agent that can send, receive, and respond to protocol messages.
-
-    Usage::
-
-        class MyAgent(Agent):
-            def on_message(self, msg):
-                if msg.verb == "QUERY":
-                    self.reply_to(msg, {"answer": "42"})
-
-        hub = LocalHub()
-        a = MyAgent("agent_a", transport=LocalTransport("agent_a", hub),
-                     capabilities=["math"])
-        a.start()
-    """
-
-    def __init__(
-        self,
-        agent_id: str,
-        transport: Transport,
-        capabilities: Optional[List[str]] = None,
-    ):
-        self.agent_id = agent_id
+    def __init__(self, agent_id: str, agent_type: str = "",
+                 transport: Optional[Transport] = None,
+                 capabilities: Optional[list] = None,
+                 **kwargs):
+        self.id = agent_id
+        self.agent_id = agent_id  # backward compat alias
+        self.agent_type = agent_type
         self.transport = transport
+        self.capabilities = capabilities or []
+
+        # Internal state
         self.state = AgentState(
             agent_id=agent_id,
-            capabilities=capabilities or [],
+            agent_type=agent_type,
+            offers=self.capabilities,
         )
+
+        # Peer directory -- who have we met?
+        # { agent_id: AgentState }
+        self.peers: dict = {}
+
+        # Message log (bounded ring buffer)
+        self._log: list = []
+        self._log_max = 500
+
+        # Callbacks for specific verbs
+        self._handlers: dict = {}
+
         self._running = False
         self._lock = threading.Lock()
 
-    # ── lifecycle ────────────────────────────
+    # ── Lifecycle ──────────────────────────────
 
     def start(self):
-        """Begin listening for messages and announce presence."""
+        """Announce presence and start listening."""
         self._running = True
         self.state.status = "ACTIVE"
         self.state.touch()
-        self.transport.start_listening(self._handle_incoming)
-        self.announce()
+        if self.transport:
+            self.transport.start_listening(self._on_raw_message)
+            self.announce()
 
     def stop(self):
-        """Send BYE, stop listening, and release resources."""
+        """Say goodbye and shut down."""
         if not self._running:
             return
-        self._send(BYE)
         self._running = False
         self.state.status = "GONE"
-        self.transport.stop_listening()
-        self.transport.close()
+        if self.transport:
+            self.transport.broadcast(Message.bye(self.id))
+            self.transport.stop_listening()
+            self.transport.close()
 
-    # ── public verbs ─────────────────────────
+    # ── Sending ────────────────────────────────
 
     def announce(self):
         """Broadcast: I'm here, this is what I do."""
-        self._send(ANNOUNCE, payload={"capabilities": self.state.capabilities})
+        msg = Message.announce(self.id, self.capabilities)
+        self._send_broadcast(msg)
 
-    def ask(self, question: str, recipient: Optional[str] = None):
-        """Send a QUERY to a specific agent or broadcast."""
-        self._send(QUERY, recipient=recipient, payload={"question": question})
+    def ask(self, question, topic: str = "",
+            recipient: str = "") -> Message:
+        """Fire a question. Don't wait for response."""
+        msg = Message.query(self.id, question, topic=topic,
+                            recipient=recipient)
+        if recipient:
+            self._send_direct(msg, recipient)
+        else:
+            self._send_broadcast(msg)
+        return msg
 
+    def share_state(self):
+        """Publish current state snapshot to everyone."""
+        self.state.timestamp = time.time()
+        msg = Message.state(self.id, self.state.to_dict())
+        self._send_broadcast(msg)
+
+    # Alias for backward compat
     def share(self, recipient: Optional[str] = None):
-        """Share current state with a specific agent or broadcast."""
-        self._send(STATE, recipient=recipient, payload=self.state.to_dict())
+        """Share current state."""
+        self.state.timestamp = time.time()
+        msg = Message.state(self.id, self.state.to_dict())
+        if recipient:
+            self._send_direct(msg, recipient)
+        else:
+            self._send_broadcast(msg)
 
-    def offer(self, description: str, data: Optional[Dict[str, Any]] = None,
-              recipient: Optional[str] = None):
-        """Offer a resource or capability."""
-        payload: Dict[str, Any] = {"description": description}
-        if data:
-            payload["data"] = data
-        self._send(OFFER, recipient=recipient, payload=payload)
+    def offer(self, what, topic: str = "",
+              recipient: str = ""):
+        """Announce you have something available."""
+        msg = Message.offer(self.id, what, topic=topic,
+                            recipient=recipient)
+        if recipient:
+            self._send_direct(msg, recipient)
+        else:
+            self._send_broadcast(msg)
 
+    def reply_to(self, original: Message, body: Any):
+        """Respond to a specific message."""
+        msg = Message.reply(self.id, body, original)
+        self._send_direct(msg, original.sender)
+
+    def signal_stuck(self, problem: str, topic: str = ""):
+        """Broadcast that you need help."""
+        self.state.status = "STUCK"
+        msg = Message.stuck(self.id, problem, topic=topic)
+        self._send_broadcast(msg)
+
+    # Alias for backward compat
     def stuck(self, problem: str, recipient: Optional[str] = None):
         """Signal that help is needed."""
-        self._send(STUCK, recipient=recipient, payload={"problem": problem})
+        self.state.status = "STUCK"
+        msg = Message.stuck(self.id, problem)
+        if recipient:
+            self._send_direct(msg, recipient)
+        else:
+            self._send_broadcast(msg)
 
+    def signal_done(self, what: str):
+        """Broadcast task completion."""
+        msg = Message.done(self.id, what)
+        self._send_broadcast(msg)
+
+    # Alias for backward compat
     def done(self, summary: str, recipient: Optional[str] = None):
         """Announce completion of a task."""
-        self._send(DONE, recipient=recipient, payload={"summary": summary})
+        msg = Message.done(self.id, summary)
+        if recipient:
+            self._send_direct(msg, recipient)
+        else:
+            self._send_broadcast(msg)
 
-    def reply_to(self, original: Message, payload: Dict[str, Any]):
-        """Send a REPLY in response to a received message."""
-        msg = Message(
-            verb=REPLY,
-            sender=self.agent_id,
-            recipient=original.sender,
-            payload=payload,
-            in_reply_to=original.msg_id,
-        )
-        self.state.touch()
-        self.transport.send(msg, original.sender)
+    # ── Receiving / Dispatch ───────────────────
 
-    # ── override point ───────────────────────
+    def _on_raw_message(self, msg: Message):
+        """Central dispatcher -- routes incoming messages."""
+        if not msg or not self._running:
+            return
+
+        # Don't process own messages
+        if msg.sender == self.id:
+            return
+
+        # If addressed to someone else, ignore
+        if msg.recipient and msg.recipient != self.id:
+            return
+
+        with self._lock:
+            # Log it
+            self._log_message(msg)
+
+            # Built-in handling
+            self._handle_builtin(msg)
+
+            # Custom handlers
+            for handler in self._handlers.get(msg.verb, []):
+                try:
+                    handler(msg)
+                except Exception:
+                    pass  # graceful degradation
+
+            # Override point
+            self.on_message(msg)
+
+    def _handle_builtin(self, msg: Message):
+        """Default handling for core verbs."""
+        if msg.verb == "ANNOUNCE":
+            caps = []
+            if isinstance(msg.body, dict):
+                caps = msg.body.get("capabilities", [])
+            self.peers[msg.sender] = AgentState(
+                agent_id=msg.sender,
+                offers=caps,
+                status="ACTIVE",
+                timestamp=msg.timestamp,
+            )
+
+        elif msg.verb == "STATE":
+            if isinstance(msg.body, dict):
+                peer_state = AgentState.from_dict(msg.body)
+                if peer_state:
+                    self.peers[msg.sender] = peer_state
+
+        elif msg.verb == "BYE":
+            if msg.sender in self.peers:
+                self.peers[msg.sender].status = "OFFLINE"
+
+    # ── Override Points ────────────────────────
 
     def on_message(self, msg: Message):
         """
-        Override this method to handle incoming messages.
-
-        Called for every message received (broadcast or directed).
-        The default implementation does nothing — agents ignore what
-        they don't understand (graceful degradation).
+        Override this to define agent behavior.
+        Called for every incoming message after built-in handling.
         """
 
-    # ── internals ────────────────────────────
+    # ── Handler Registration ───────────────────
 
-    def _send(self, verb: str, recipient: Optional[str] = None,
-              payload: Optional[Dict[str, Any]] = None):
-        msg = Message(
-            verb=verb,
-            sender=self.agent_id,
-            recipient=recipient,
-            payload=payload or {},
-        )
-        self.state.touch()
-        if recipient:
-            self.transport.send(msg, recipient)
-        else:
+    def on(self, verb: str, handler: Callable[[Message], None]):
+        """Register a callback for a specific verb."""
+        verb = verb.upper()
+        if verb not in self._handlers:
+            self._handlers[verb] = []
+        self._handlers[verb].append(handler)
+
+    # ── Peer Discovery ─────────────────────────
+
+    def find_peers(self, capability: str = "",
+                   status: str = "") -> list:
+        """Find peers matching criteria."""
+        results = []
+        for peer in self.peers.values():
+            if capability and capability not in peer.offers:
+                continue
+            if status and peer.status != status:
+                continue
+            results.append(peer)
+        return results
+
+    def find_help(self, need: str) -> list:
+        """Find peers that offer what you need."""
+        return self.find_peers(capability=need, status="ACTIVE")
+
+    # ── Internal ───────────────────────────────
+
+    def _send_broadcast(self, msg: Message):
+        if self.transport:
             self.transport.broadcast(msg)
+        self._log_message(msg)
 
-    def _handle_incoming(self, msg: Message):
-        """Dispatch an incoming message after bookkeeping."""
-        if msg.sender == self.agent_id:
-            return  # ignore own messages
+    def _send_direct(self, msg: Message, target: str):
+        if self.transport:
+            self.transport.send(msg, target)
+        self._log_message(msg)
 
-        with self._lock:
-            self.state.add_peer(msg.sender)
-            self.state.touch()
-            self.on_message(msg)
+    def _log_message(self, msg: Message):
+        self._log.append(msg)
+        if len(self._log) > self._log_max:
+            self._log = self._log[-self._log_max:]
+
+    @property
+    def message_log(self) -> list:
+        return list(self._log)
+
+    def __str__(self) -> str:
+        peers = len([p for p in self.peers.values()
+                     if p.status != "OFFLINE"])
+        return (f"Agent({self.id}, type={self.agent_type}, "
+                f"peers={peers}, status={self.state.status})")

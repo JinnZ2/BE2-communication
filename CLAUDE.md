@@ -20,21 +20,29 @@ BE2-communication/
 │
 ├── core/                              # Agent protocol core
 │   ├── __init__.py                    # Package exports (Agent, Message, etc.)
-│   ├── agent.py                       # Base Agent class
-│   ├── message.py                     # Message dataclass + verb constants
-│   ├── state.py                       # AgentState snapshot
+│   ├── agent.py                       # Base Agent class with peer discovery
+│   ├── message.py                     # Message dataclass + 8 verb constants + convenience constructors
+│   ├── state.py                       # AgentState snapshot (status, capacity, offers, needs)
 │   └── transport.py                   # Abstract Transport interface
 │
-├── transports/                        # Pluggable transport backends
+├── transports/                        # Pluggable transport backends (7 transports)
 │   ├── __init__.py                    # Package exports
 │   ├── local.py                       # LocalHub + LocalTransport (in-process)
 │   ├── tcp.py                         # TCPTransport (length-prefixed JSON)
-│   └── file_queue.py                  # FileQueueTransport (file-based async)
+│   ├── udp.py                         # UDPTransport (zero-config LAN broadcast)
+│   ├── file_queue.py                  # FileQueueTransport (file-based async)
+│   ├── lora.py                        # LoRaTransport (serial + simulator)
+│   ├── ham.py                         # HAMTransport (AX.25/KISS + simulator)
+│   └── cb.py                          # CBTransport (CB radio + simulator)
 │
-├── examples/                          # Working demos
+├── examples/                          # Working demos (6 examples)
 │   ├── __init__.py
 │   ├── two_agents_local.py            # LocalHub query/reply demo
-│   └── two_agents_tcp.py              # TCP socket query/reply demo
+│   ├── two_agents_tcp.py              # TCP socket query/reply demo
+│   ├── mesh_discovery.py              # Dynamic peer discovery + late arrivals
+│   ├── async_file_queue.py            # File-based persistent messaging
+│   ├── be2_agents.py                  # BE-2 pipeline as communicating agents
+│   └── corridor_relay.py              # Multi-transport corridor relay (CB/LoRa/HAM)
 │
 ├── icosahedral_lightbridge.py         # Core 6-stage geometric pipeline
 ├── be2_lightbridge.py                 # BE-2 pipeline with meta-awareness & thermal model
@@ -46,6 +54,7 @@ BE2-communication/
 
 - **Language**: Python 3.9+ (pipeline files use PEP 585 generic type syntax)
 - **Dependencies**: Standard library (`math`, `random`, `struct`, `json`, `socket`, `threading`, `queue`, `uuid`, `time`, `pathlib`, `abc`, `dataclasses`, `typing`) plus `numpy` (for `octahedral_bridge.py`)
+- **Optional**: `pyserial` for real LoRa/HAM hardware (simulator fallback included)
 - **No build system**: No setup.py, pyproject.toml, or requirements.txt
 - **No external tooling**: No linter, formatter, or CI/CD configured
 
@@ -57,10 +66,10 @@ Transport-agnostic agent framework. Agents arrive, announce, listen, negotiate.
 
 | Module | Key Classes | Purpose |
 |--------|-------------|---------|
-| `message.py` | `Message` | Dataclass with verb, sender, recipient, payload, msg_id, timestamp. Serializes to/from JSON bytes. Verb constants: ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE |
-| `transport.py` | `Transport` (ABC) | Abstract interface: `send()`, `broadcast()`, `receive()`, `start_listening()`, `stop_listening()`, `close()` |
-| `state.py` | `AgentState` | Tracks agent_id, capabilities, known_peers, status, last_active, metadata |
-| `agent.py` | `Agent` | Base class with `announce()`, `ask()`, `share()`, `offer()`, `stuck()`, `done()`, `reply_to()`, `on_message()`. Override `on_message()` for custom behavior |
+| `message.py` | `Message` | Dataclass with verb, sender, body, topic, recipient, msg_id, timestamp. Serializes via `to_bytes()`/`from_bytes()`. Convenience constructors: `Message.announce()`, `.query()`, `.state()`, `.offer()`, `.reply()`, `.done()`, `.stuck()`, `.bye()` |
+| `transport.py` | `Transport` (ABC) | Abstract interface: `send()`, `broadcast()`, `receive()`, `start_listening()`, `stop_listening()`, `close()`, `transport_name` |
+| `state.py` | `AgentState` | Tracks agent_id, agent_type, status, capacity, offers, needs, extras. Methods: `to_dict()`, `from_dict()`, `is_available`, `needs_help` |
+| `agent.py` | `Agent` | Base class with `announce()`, `ask()`, `share_state()`, `offer()`, `reply_to()`, `signal_stuck()`, `signal_done()`, `find_peers()`, `on_message()`. Maintains `peers` dict and `message_log`. Built-in ANNOUNCE/STATE/BYE handling |
 
 ### transports/ — Pluggable Backends
 
@@ -68,7 +77,11 @@ Transport-agnostic agent framework. Agents arrive, announce, listen, negotiate.
 |--------|-------------|-------------|
 | `local.py` | `LocalHub`, `LocalTransport` | Thread-safe in-process queues. For testing and single-machine sims |
 | `tcp.py` | `TCPTransport` | Real TCP sockets with 4-byte length-prefixed JSON framing. `add_peer()` to register remote agents |
+| `udp.py` | `UDPTransport` | Zero-config LAN broadcast via UDP. Auto-learns peer addresses from incoming messages |
 | `file_queue.py` | `FileQueueTransport` | File-based message passing via per-agent inbox dirs. Atomic writes, survives restarts |
+| `lora.py` | `LoRaTransport` | LoRa serial radio with chunking/reassembly. Falls back to file-based simulator |
+| `ham.py` | `HAMTransport` | AX.25/KISS TNC for amateur radio. KISS framing + chunking. Falls back to simulator |
+| `cb.py` | `CBTransport` | CB radio (channel 19). Audio-based with simulator for development |
 
 ### icosahedral_lightbridge.py — Core Pipeline
 
@@ -162,8 +175,12 @@ python octahedral_bridge.py         # Tensor mapping, dispatcher & FELTSensor te
 Agent protocol examples (run from repo root):
 
 ```bash
-python -m examples.two_agents_local  # LocalHub query/reply demo
-python -m examples.two_agents_tcp    # TCP socket query/reply demo
+python -m examples.two_agents_local   # LocalHub query/reply demo
+python -m examples.two_agents_tcp     # TCP socket query/reply demo
+python -m examples.mesh_discovery     # Dynamic peer discovery
+python -m examples.async_file_queue   # File-based persistent messaging
+python -m examples.be2_agents         # BE-2 pipeline as agents
+python -m examples.corridor_relay     # Multi-transport corridor relay
 ```
 
 Note: `octahedral_bridge.py` requires `numpy` (`pip install numpy`).
@@ -179,7 +196,7 @@ There is no test framework (pytest/unittest). Tests run via `if __name__ == "__m
 - **Transport-agnostic**: Agent logic never depends on transport implementation.
 - **Graceful degradation**: Malformed messages get ignored, not crashed on. Silent agents get worked around, not waited on.
 - **Stage naming**: Lowercase with underscores in code, PascalCase for class names.
-- **Standard-library preference**: Keep core and transports stdlib-only. `numpy` allowed for physics modules.
+- **Standard-library preference**: Keep core and transports stdlib-only. `numpy` allowed for physics modules. `pyserial` optional for radio transports.
 - **CC0 license**: All contributions are public domain.
 
 ## Git Workflow
@@ -187,29 +204,3 @@ There is no test framework (pytest/unittest). Tests run via `if __name__ == "__m
 - **Main branch**: `master` (remote tracks as `main`)
 - **Feature branches**: `claude/<description>` pattern
 - **Commit style**: Short descriptive messages (e.g., "Create icosahedral_lightbridge.py")
-
-
-repo structure add in:
-
-agent-protocol/
-├── core/           (4 files)
-│   ├── agent.py        # Base agent — opportunistic discovery
-│   ├── message.py      # 8 verbs, JSON wire format
-│   ├── state.py        # Agent state snapshot
-│   └── transport.py    # Abstract transport interface
-├── transports/     (6 files)
-│   ├── local.py        # In-process (testing)
-│   ├── tcp.py          # TCP sockets (LAN)
-│   ├── udp.py          # UDP broadcast (zero-config LAN)
-│   ├── file_queue.py   # Async file-based (cross-process)
-│   ├── lora.py         # LoRa serial + simulator
-│   ├── ham.py          # HAM AX.25/KISS + simulator
-│   └── cb.py           # CB radio + simulator
-├── examples/       (6 files)
-│   ├── two_agents_local.py
-│   ├── two_agents_tcp.py
-│   ├── mesh_discovery.py
-│   ├── async_file_queue.py
-│   ├── be2_agents.py
-│   └── corridor_relay.py
-└── README.md
