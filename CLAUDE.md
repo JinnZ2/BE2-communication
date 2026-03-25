@@ -2,10 +2,10 @@
 
 ## Project Overview
 
-**BE2-communication** is an opportunistic agent communication framework with geometric computation pipelines. The repository contains two main components:
+**BE2-communication** is an opportunistic agent communication framework with geometric computation pipelines. The repository contains three layers:
 
-1. **Agent Protocol** (documented in README, not yet implemented) — a transport-agnostic framework where agents discover each other opportunistically using message verbs (ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE).
-2. **Geometric Computation Pipelines** (implemented) — icosahedral lattice-based signal processing pipelines with thermal gating and meta-awareness.
+1. **Agent Protocol** (core/ + transports/) — a transport-agnostic framework where agents discover each other opportunistically using message verbs (ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE).
+2. **Geometric Computation Pipelines** — icosahedral lattice-based signal processing with thermal gating, meta-awareness, and octahedral tensor mapping.
 3. **UDP Mesh Protocol** (spec + implementation) — byte-level LAN UDP mesh for agent-to-agent communication with CRC16 integrity.
 
 License: **CC0 — Public Domain**
@@ -14,33 +14,68 @@ License: **CC0 — Public Domain**
 
 ```
 BE2-communication/
-├── CLAUDE.md                      # This file
-├── README.md                      # Agent-protocol documentation
-├── LICENSE                        # CC0 1.0 Universal
-├── be2_lightbridge.py             # Full BE-2 pipeline with meta-awareness & thermal model
-├── icosahedral_lightbridge.py     # Core 6-stage geometric pipeline
-├── octahedral_bridge.py           # Octahedral tensor mapping, dispatcher & FELTSensor
-└── udp_mesh_spec.py               # UDP mesh protocol spec & implementation (CRC16)
+├── CLAUDE.md                          # This file
+├── README.md                          # Agent-protocol documentation
+├── LICENSE                            # CC0 1.0 Universal
+│
+├── core/                              # Agent protocol core
+│   ├── __init__.py                    # Package exports (Agent, Message, etc.)
+│   ├── agent.py                       # Base Agent class
+│   ├── message.py                     # Message dataclass + verb constants
+│   ├── state.py                       # AgentState snapshot
+│   └── transport.py                   # Abstract Transport interface
+│
+├── transports/                        # Pluggable transport backends
+│   ├── __init__.py                    # Package exports
+│   ├── local.py                       # LocalHub + LocalTransport (in-process)
+│   ├── tcp.py                         # TCPTransport (length-prefixed JSON)
+│   └── file_queue.py                  # FileQueueTransport (file-based async)
+│
+├── examples/                          # Working demos
+│   ├── two_agents_local.py            # LocalHub query/reply demo
+│   └── two_agents_tcp.py              # TCP socket query/reply demo
+│
+├── icosahedral_lightbridge.py         # Core 6-stage geometric pipeline
+├── be2_lightbridge.py                 # BE-2 pipeline with meta-awareness & thermal model
+├── octahedral_bridge.py               # Octahedral tensor mapping, dispatcher & FELTSensor
+└── udp_mesh_spec.py                   # UDP mesh protocol spec & implementation (CRC16)
 ```
-
-The README describes a planned `core/`, `transports/`, and `examples/` directory structure that is **not yet implemented**.
 
 ## Tech Stack
 
 - **Language**: Python (3.7+ required for dataclasses)
-- **Dependencies**: Standard library (`math`, `random`, `struct`, `json`, `dataclasses`, `typing`) plus `numpy` (for `octahedral_bridge.py`)
+- **Dependencies**: Standard library (`math`, `random`, `struct`, `json`, `socket`, `threading`, `queue`, `uuid`, `time`, `pathlib`, `abc`, `dataclasses`, `typing`) plus `numpy` (for `octahedral_bridge.py`)
 - **No build system**: No setup.py, pyproject.toml, or requirements.txt
 - **No external tooling**: No linter, formatter, or CI/CD configured
 
 ## Code Architecture
+
+### core/ — Agent Protocol
+
+Transport-agnostic agent framework. Agents arrive, announce, listen, negotiate.
+
+| Module | Key Classes | Purpose |
+|--------|-------------|---------|
+| `message.py` | `Message` | Dataclass with verb, sender, recipient, payload, msg_id, timestamp. Serializes to/from JSON bytes. Verb constants: ANNOUNCE, QUERY, STATE, OFFER, REPLY, DONE, STUCK, BYE |
+| `transport.py` | `Transport` (ABC) | Abstract interface: `send()`, `broadcast()`, `receive()`, `start_listening()`, `stop_listening()`, `close()` |
+| `state.py` | `AgentState` | Tracks agent_id, capabilities, known_peers, status, last_active, metadata |
+| `agent.py` | `Agent` | Base class with `announce()`, `ask()`, `share()`, `offer()`, `stuck()`, `done()`, `reply_to()`, `on_message()`. Override `on_message()` for custom behavior |
+
+### transports/ — Pluggable Backends
+
+| Module | Key Classes | Description |
+|--------|-------------|-------------|
+| `local.py` | `LocalHub`, `LocalTransport` | Thread-safe in-process queues. For testing and single-machine sims |
+| `tcp.py` | `TCPTransport` | Real TCP sockets with 4-byte length-prefixed JSON framing. `add_peer()` to register remote agents |
+| `file_queue.py` | `FileQueueTransport` | File-based message passing via per-agent inbox dirs. Atomic writes, survives restarts |
 
 ### icosahedral_lightbridge.py — Core Pipeline
 
 A 6-stage gated pipeline where each stage can halt forward progress:
 
 ```
-3D vector → LightBridgeEncoder → HamiltonianResolver → HamiltonianValidator
-         → NautilusGrowth → UrgencyGuard → SubstrateHandshake
+3D vector -> LightBridgeEncoder -> HamiltonianResolver -> HamiltonianValidator
+          -> NautilusGrowth -> UrgencyGuard -> SubstrateHandshake
 ```
 
 | Stage | Purpose |
@@ -88,8 +123,6 @@ Byte-level LAN UDP protocol for agent communication with CRC16 integrity.
 
 Key class: `UDPMeshPacket` with `encode()` / `decode()` methods and CRC-16/CCITT-False integrity verification.
 
-Payload is JSON-encoded UTF-8. Supports optional SHELL/ENERGY extension messages for growth/exploration signaling.
-
 ### octahedral_bridge.py — Octahedral Tensor Mapping & Sovereign Dispatcher
 
 Maps the 8 stable positions of a diamond cubic unit cell to tensor states via sp3 hybrid orbital projections. Requires `numpy`.
@@ -116,31 +149,36 @@ Key constant: `TRANSITION_MATRIX` — 8x8 numpy array of transition costs (0=sam
 
 ## Running the Code
 
-All files are self-contained with inline tests:
+Pipeline modules are self-contained with inline tests:
 
 ```bash
-python icosahedral_lightbridge.py   # Runs core pipeline tests
-python be2_lightbridge.py           # Runs BE-2 governed pipeline tests
-python udp_mesh_spec.py             # Runs UDP mesh round-trip & integrity tests
-python octahedral_bridge.py         # Runs tensor mapping, dispatcher & FELTSensor tests
+python icosahedral_lightbridge.py   # Core pipeline tests
+python be2_lightbridge.py           # BE-2 governed pipeline tests
+python udp_mesh_spec.py             # UDP mesh round-trip & integrity tests
+python octahedral_bridge.py         # Tensor mapping, dispatcher & FELTSensor tests
+```
+
+Agent protocol examples (run from repo root):
+
+```bash
+python -m examples.two_agents_local  # LocalHub query/reply demo
+python -m examples.two_agents_tcp    # TCP socket query/reply demo
 ```
 
 Note: `octahedral_bridge.py` requires `numpy` (`pip install numpy`).
 
 There is no test framework (pytest/unittest). Tests run via `if __name__ == "__main__":` blocks.
 
-## Known Issues
-
-- **Unicode quotes**: Both Python files contain Unicode curly quotes (`\u201c`, `\u201d`) in docstrings instead of ASCII quotes, which cause `SyntaxError` on execution.
-- **Unimplemented modules**: The `core/`, `transports/`, and `examples/` directories described in the README do not exist yet.
-
 ## Development Conventions
 
 - **Gate pattern**: Each pipeline stage can halt processing; energy only flows forward on STABLE/PROCEED status.
 - **Nibble encoding**: Vertex indices are stored as 4-bit values (0-11).
 - **Dataclass state propagation**: A single `PipelineState` object is mutated and passed through all stages.
+- **Message-based protocol**: Agents communicate via `Message` objects with standard verbs.
+- **Transport-agnostic**: Agent logic never depends on transport implementation.
+- **Graceful degradation**: Malformed messages get ignored, not crashed on. Silent agents get worked around, not waited on.
 - **Stage naming**: Lowercase with underscores in code, PascalCase for class names.
-- **No external dependencies**: Keep the project standard-library-only.
+- **Standard-library preference**: Keep core and transports stdlib-only. `numpy` allowed for physics modules.
 - **CC0 license**: All contributions are public domain.
 
 ## Git Workflow
