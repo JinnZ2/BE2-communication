@@ -26,7 +26,7 @@ BE2-communication/
 │   ├── state.py                       # AgentState snapshot (status, capacity, offers, needs)
 │   └── transport.py                   # Abstract Transport interface
 │
-├── transports/                        # Pluggable transport backends (9 transports)
+├── transports/                        # Pluggable transport backends (10 transports)
 │   ├── __init__.py                    # Package exports
 │   ├── local.py                       # LocalHub + LocalTransport (in-process)
 │   ├── tcp.py                         # TCPTransport (length-prefixed JSON)
@@ -36,9 +36,10 @@ BE2-communication/
 │   ├── ham.py                         # HAMTransport (AX.25/KISS + simulator)
 │   ├── cb.py                          # CBTransport (CB radio + simulator)
 │   ├── ble.py                         # BLETransport (BLE mesh with relay + dedup)
-│   └── wifi_direct.py                 # WiFiDirectTransport (P2P WiFi, no router)
+│   ├── wifi_direct.py                 # WiFiDirectTransport (P2P WiFi, no router)
+│   └── classic_bt.py                  # ClassicBTTransport (AVRCP/HFP/A2DP accessibility)
 │
-├── examples/                          # Working demos (7 examples)
+├── examples/                          # Working demos (8 examples)
 │   ├── __init__.py
 │   ├── two_agents_local.py            # LocalHub query/reply demo
 │   ├── two_agents_tcp.py              # TCP socket query/reply demo
@@ -46,7 +47,8 @@ BE2-communication/
 │   ├── async_file_queue.py            # File-based persistent messaging
 │   ├── be2_agents.py                  # BE-2 pipeline as communicating agents
 │   ├── corridor_relay.py              # Multi-transport corridor relay (CB/LoRa/HAM)
-│   └── emergency_mesh.py             # Emergency phone mesh (BLE + WiFi Direct)
+│   ├── emergency_mesh.py             # Emergency phone mesh (BLE + WiFi Direct)
+│   └── accessible_emergency.py        # Deaf/HoH accessible alerts (Classic BT)
 │
 ├── icosahedral_lightbridge.py         # Core 6-stage geometric pipeline
 ├── be2_lightbridge.py                 # BE-2 pipeline with meta-awareness & thermal model
@@ -89,6 +91,20 @@ Transport-agnostic agent framework. Agents arrive, announce, listen, negotiate.
 | `cb.py` | `CBTransport` | CB radio (channel 19). Audio-based with simulator for development |
 | `ble.py` | `BLETransport` | Bluetooth Low Energy mesh with relay, dedup, TTL, SOS flags. Falls back to simulator |
 | `wifi_direct.py` | `WiFiDirectTransport` | WiFi Direct (P2P) for high-bandwidth phone-to-phone. Falls back to simulator |
+| `classic_bt.py` | `ClassicBTTransport` | Classic Bluetooth accessibility — pushes alerts to AVRCP screens, HFP text channel, A2DP haptic patterns |
+
+### classic_bt.py — Classic Bluetooth Accessibility Transport
+
+Repurposes Classic Bluetooth profiles to push emergency alerts to consumer devices deaf and hard-of-hearing users already own — car dashboards, smart speakers, fitness watches, LED speakers, hearing aids.
+
+| Class | Profile | Purpose |
+|-------|---------|---------|
+| `AVRCPAlert` | AVRCP | Formats alerts as track metadata (title/artist/album) displayed on any Bluetooth screen |
+| `HFPChannel` | HFP | Encodes alerts as AT commands on the hands-free text channel |
+| `HapticEncoder` | A2DP | Generates PCM audio waveforms that produce recognizable light/vibration patterns on speakers |
+| `ClassicBTTransport` | All | Transport ABC implementation that broadcasts across all three profiles simultaneously |
+
+Key methods: `send_sos()` (repeated broadcast with haptic SOS pattern), `send_location()`, `send_supply_alert()`.
 
 ### emergency_mesh_spec.py — Emergency Phone Mesh Protocol
 
@@ -214,6 +230,7 @@ python -m examples.async_file_queue   # File-based persistent messaging
 python -m examples.be2_agents         # BE-2 pipeline as agents
 python -m examples.corridor_relay     # Multi-transport corridor relay
 python -m examples.emergency_mesh     # Emergency phone mesh (BLE + WiFi Direct)
+python -m examples.accessible_emergency  # Deaf/HoH accessible alerts (Classic BT)
 ```
 
 Note: `octahedral_bridge.py` requires `numpy` (`pip install numpy`).

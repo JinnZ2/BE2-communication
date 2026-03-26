@@ -13,6 +13,7 @@ from transports.ham import HAMTransport
 from transports.cb import CBTransport
 from transports.ble import BLETransport
 from transports.wifi_direct import WiFiDirectTransport
+from transports.classic_bt import ClassicBTTransport
 
 __all__ = [
     "LocalHub",
@@ -25,4 +26,5 @@ __all__ = [
     "CBTransport",
     "BLETransport",
     "WiFiDirectTransport",
+    "ClassicBTTransport",
 ]
