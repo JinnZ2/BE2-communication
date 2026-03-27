@@ -1,0 +1,70 @@
+{
+  "name": "be2-communication",
+  "description": "Agent communication framework — opportunistic discovery, multi-transport mesh, emergency accessibility",
+  "repository": "JinnZ2/BE2-communication",
+  "links": [
+    {
+      "target": "JinnZ2/TRDAP",
+      "alias": "trdap",
+      "direction": "bidirectional",
+      "relationship": "protocol-routing",
+      "description": "TRDAP hub queries route over BE2 transports (LoRa, HAM, CB, BLE, WiFi Direct) for low-energy emergency communications; BE2 emergency mesh protocol implements the relay/dedup/TTL patterns TRDAP specifies",
+      "shared_concepts": [
+        "mesh_relay_with_ttl",
+        "sos_priority_flooding",
+        "resource_query_response",
+        "crc16_integrity"
+      ]
+    },
+    {
+      "target": "JinnZ2/Resilience",
+      "alias": "resilience",
+      "direction": "bidirectional",
+      "relationship": "accessibility-infrastructure",
+      "description": "Resilience models communication infrastructure degradation; BE2 provides the actual transport implementations (CB/LoRa/HAM corridor, BLE mesh, Classic BT accessibility) that operate when those systems fail. Classic BT transport extends emergency reach to deaf/HoH users via AVRCP screens, HFP text, and A2DP haptic patterns on consumer devices.",
+      "entities_exported": [
+        "BE2.AGENT_PROTOCOL",
+        "BE2.BLE_MESH_TRANSPORT",
+        "BE2.CLASSIC_BT_ACCESSIBILITY",
+        "BE2.EMERGENCY_MESH_PROTOCOL",
+        "BE2.CORRIDOR_TRANSPORTS"
+      ],
+      "entities_consumed": [
+        "RESILIENCE.CITY_MODEL",
+        "RESILIENCE.COUPLING_EDGE",
+        "MESH.GRID_FAILURE_SIM"
+      ]
+    }
+  ],
+  "local_modules": {
+    "core/": {
+      "provides": ["BE2.AGENT_PROTOCOL", "BE2.MESSAGE_VERBS", "BE2.TRANSPORT_ABC"],
+      "description": "Transport-agnostic agent framework — agents discover, negotiate, and coordinate via 8 message verbs"
+    },
+    "transports/ble.py": {
+      "provides": ["BE2.BLE_MESH_TRANSPORT"],
+      "description": "BLE mesh with relay, dedup, TTL, SOS flags — phone-to-phone when infrastructure is down"
+    },
+    "transports/classic_bt.py": {
+      "provides": ["BE2.CLASSIC_BT_ACCESSIBILITY"],
+      "description": "AVRCP/HFP/A2DP accessibility transport — pushes emergency alerts to screens and haptic devices deaf users already own"
+    },
+    "transports/lora.py": {
+      "provides": ["BE2.LORA_TRANSPORT"],
+      "description": "LoRa serial radio with chunking/reassembly for long-range low-power mesh"
+    },
+    "transports/ham.py": {
+      "provides": ["BE2.HAM_TRANSPORT"],
+      "description": "AX.25/KISS amateur radio transport for 50+ mile range"
+    },
+    "transports/cb.py": {
+      "provides": ["BE2.CB_TRANSPORT"],
+      "description": "CB radio transport (channel 19) for 5-15 mile range corridor communication"
+    },
+    "emergency_mesh_spec.py": {
+      "provides": ["BE2.EMERGENCY_MESH_PROTOCOL"],
+      "description": "Emergency mesh protocol spec — SOS beacons, location sharing, supply coordination, CRC16 integrity"
+    }
+  },
+  "consent": { "license": "CC0", "share_ok": true }
+}
