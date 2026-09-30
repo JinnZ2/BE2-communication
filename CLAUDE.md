@@ -254,3 +254,17 @@ There is no test framework (pytest/unittest). Tests run via `if __name__ == "__m
 - **Main branch**: `master` (remote tracks as `main`)
 - **Feature branches**: `claude/<description>` pattern
 - **Commit style**: Short descriptive messages (e.g., "Create icosahedral_lightbridge.py")
+
+<!-- clone-refspec-note v1 -->
+## Cloning and pushing
+Shallow clones are single-branch by default.
+Before pushing any branch other than main, run:
+
+    git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    git fetch --depth 1
+
+Or clone with: git clone --depth 1 --no-single-branch <url>
+Without this, the first push of a new branch
+fails the tracking-ref check even when the
+commit landed.
+<!-- /clone-refspec-note v1 -->
